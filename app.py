@@ -122,7 +122,7 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
     with col_t3:
         st.markdown("""
         #### 🟠 Tier 3: Fuzzy / Ortu + Tgl Lahir
-        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu sama ATAU Kemiripan Nama $\ge 85\%$).
+        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu sama ATAU Kemiripan Nama ≥ 85%).
         * **Kepastian:** **Perlu Verifikasi Manual**
         * **Kasus:** Singkatan nama, beda ejaan ortu (*Zulvani* vs *Zulfani*), atau nama lahir (*By Ny...*).
         """)
