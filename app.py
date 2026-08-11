@@ -151,9 +151,16 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
         * **Kasus:** Singkatan nama, beda ejaan ortu (*Zulvani* vs *Zulfani*), atau nama lahir (*By Ny...*).
         """)
 
-# --- SIDEBAR UPLOAD ---
+# --- SIDEBAR UPLOAD & RESET ---
 st.sidebar.header("📂 Sumber Data")
 uploaded_file = st.sidebar.file_uploader("Unggah File Excel (.xlsx)", type=["xlsx"])
+
+# Tombol untuk membersihkan/reset transaksi sebelumnya
+if 'df_working' in st.session_state:
+    st.sidebar.write("")
+    if st.sidebar.button("🔄 Reset / Bersihkan Transaksi", type="secondary", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 if uploaded_file is not None and 'df_working' not in st.session_state:
     df_raw = pd.read_excel(uploaded_file)
