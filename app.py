@@ -11,6 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
+# Daftar kata generik nama orang tua yang diabaikan dalam pencocokan Tier 3
 GENERIC_PARENT_NAMES = {
     'ibu', 'mama', 'bapak', 'ayah', 'ortu', 'orang tua', 
     'anonim', 'null', 'none', 'i bu', 'ibuk'
@@ -26,11 +27,11 @@ def clean_text(text):
 def similarity_score(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
-# FUNGSI PENILAIAN REKOMENDASI MASTER RECORD
+# 💡 FUNGSI PENILAIAN REKOMENDASI MASTER RECORD
 def calculate_score(row, group_df):
     score = 0
     
-    # 1. Kelengkapan Imunisasi (Bobot Maksimal 50)
+    # 1. Kelengkapan Imunisasi (Bobot Maksimal 50 Poin)
     imun_cols = [c for c in group_df.columns if 'Tanggal Imunisasi' in c or 'Tanggal IDL' in c]
     filled_imun = row[imun_cols].notnull().sum()
     score += (filled_imun / len(imun_cols)) * 50 if imun_cols else 0
@@ -58,8 +59,25 @@ def get_best_option_id(group_df):
     scores = {}
     for idx, row in group_df.iterrows():
         scores[row['ID']] = calculate_score(row, group_df)
-    # Kembalikan ID dengan skor tertinggi
     return max(scores, key=scores.get)
+
+# 💡 FUNGSI SMART CHECKBOX PENGGABUNGAN IMUNISASI
+def should_suggest_merge(master_id, group_df):
+    """Mengecek apakah data duplikat memiliki riwayat imunisasi komplementer untuk mengisi kekosongan Master."""
+    master_rows = group_df[group_df['ID'] == master_id]
+    if master_rows.empty:
+        return True
+    
+    master_row = master_rows.iloc[0]
+    dup_rows = group_df[group_df['ID'] != master_id]
+    
+    imun_cols = [c for c in group_df.columns if 'Tanggal Imunisasi' in c or 'Tanggal IDL' in c]
+    
+    for col in imun_cols:
+        if pd.isna(master_row[col]) and dup_rows[col].notnull().any():
+            return True # Ditemukan data imunisasi tambahan di duplikat
+            
+    return False
 
 
 def run_detection(df):
@@ -71,10 +89,12 @@ def run_detection(df):
     if 'NIK Anak' in df.columns:
         df['NIK Anak'] = df['NIK Anak'].astype(str).str.replace("'", "").str.strip()
     
+    # Preprocessing Teks
     df['nama_anak_clean'] = df['Nama Anak'].apply(clean_text)
     df['ortu_clean'] = df['Nama Orang Tua'].apply(clean_text)
     df['jk_clean'] = df['Jenis Kelamin Anak'].astype(str).str.lower().str.strip() if 'Jenis Kelamin Anak' in df.columns else ""
     
+    # Konversi Tanggal Lahir ke string ISO
     df['tgl_lahir_clean'] = pd.to_datetime(df['Tanggal Lahir Anak'], errors='coerce').dt.strftime('%Y-%m-%d')
     
     df['duplicate_tier'] = None
@@ -96,7 +116,7 @@ def run_detection(df):
             if j in processed:
                 continue
                 
-            # Tier 1
+            # --- TIER 1: Exact NIK Match (NIK Valid 16 Digit) ---
             nik_i = str(rows[i].get('NIK Anak', '')).replace("'", "").strip()
             nik_j = str(rows[j].get('NIK Anak', '')).replace("'", "").strip()
             if len(nik_i) == 16 and len(nik_j) == 16 and nik_i == nik_j:
@@ -104,7 +124,7 @@ def run_detection(df):
                 tier = "Tier 1: NIK Valid Sama"
                 continue
                 
-            # Tier 2
+            # --- TIER 2: Nama Anak + Tanggal Lahir Sama Persis ---
             if (rows[i]['nama_anak_clean'] == rows[j]['nama_anak_clean'] and 
                 rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean'] and 
                 len(rows[i]['nama_anak_clean']) > 2):
@@ -112,8 +132,9 @@ def run_detection(df):
                 tier = tier or "Tier 2: Nama & Tgl Lahir Sama"
                 continue
                 
-            # Tier 3
+            # --- TIER 3: Fuzzy Match / Ortu + Tanggal Lahir ---
             if rows[i]['tgl_lahir_clean'] and rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean']:
+                # Pengecekan Jenis Kelamin (Mencegah kembar beda gender tergabung)
                 jk_i = rows[i].get('jk_clean', '')
                 jk_j = rows[j].get('jk_clean', '')
                 jk_match = (not jk_i or not jk_j or jk_i == jk_j)
@@ -121,6 +142,7 @@ def run_detection(df):
                 if jk_match:
                     sim = similarity_score(rows[i]['nama_anak_clean'], rows[j]['nama_anak_clean'])
                     
+                    # 3A. Tanggal lahir sama + Nama Ortu spesifik sama + Kemiripan nama anak >= 50%
                     if (rows[i]['ortu_clean'] and 
                         rows[i]['ortu_clean'] not in GENERIC_PARENT_NAMES and 
                         rows[i]['ortu_clean'] == rows[j]['ortu_clean'] and 
@@ -129,6 +151,7 @@ def run_detection(df):
                         tier = tier or "Tier 3: Ortu & Tgl Lahir Sama"
                         continue
                     
+                    # 3B. Tanggal lahir sama + Kemiripan Nama Anak >= 85%
                     if sim >= 0.85 and len(rows[i]['nama_anak_clean']) > 3:
                         matches.append(j)
                         tier = tier or f"Tier 3: Kemiripan Nama ({int(sim*100)}%)"
@@ -142,6 +165,7 @@ def run_detection(df):
                 processed.add(idx)
             group_counter += 1
             
+    # Hapus kolom pembantu
     cols_to_drop = [c for c in ['nama_anak_clean', 'ortu_clean', 'jk_clean', 'tgl_lahir_clean'] if c in df.columns]
     df = df.drop(columns=cols_to_drop)
     return df
@@ -310,10 +334,17 @@ if st.session_state.get('processed', False):
                 format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0]}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
             )
             
+            # 💡 Smart Checkbox Value berdasarkan analisis ketersediaan data komplementer
+            suggested_check = should_suggest_merge(selected_master_id, group_data)
+            
             merge_imunization = st.checkbox(
                 "Otomatis gabungkan riwayat imunisasi yang kosong di Data Utama dari data duplikatnya", 
-                value=True
+                value=suggested_check,
+                help="Sistem secara otomatis menyarankan centang jika data duplikat memiliki riwayat imunisasi tambahan yang belum terisi di Data Utama."
             )
+            
+            if suggested_check:
+                st.caption("💡 **Saran Sistem:** Dicentang karena terdapat data riwayat imunisasi tambahan pada entri duplikat yang dapat melengkapi Data Utama.")
             
             st.write("")
             btn_col1, btn_col2 = st.columns([1, 1])
