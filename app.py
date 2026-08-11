@@ -39,6 +39,7 @@ def run_detection(df):
     # Preprocessing Teks
     df['nama_anak_clean'] = df['Nama Anak'].apply(clean_text)
     df['ortu_clean'] = df['Nama Orang Tua'].apply(clean_text)
+    df['jk_clean'] = df['Jenis Kelamin Anak'].astype(str).str.lower().str.strip() if 'Jenis Kelamin Anak' in df.columns else ""
     
     # Konversi Tanggal Lahir ke string ISO
     df['tgl_lahir_clean'] = pd.to_datetime(df['Tanggal Lahir Anak'], errors='coerce').dt.strftime('%Y-%m-%d')
@@ -80,20 +81,28 @@ def run_detection(df):
                 
             # --- TIER 3: Fuzzy Match / Ortu + Tanggal Lahir ---
             if rows[i]['tgl_lahir_clean'] and rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean']:
-                # 3A. Tanggal lahir sama + Nama Ortu sama (Hanya jika nama ortu BUKAN generik seperti 'Ibu')
-                if (rows[i]['ortu_clean'] and 
-                    rows[i]['ortu_clean'] not in GENERIC_PARENT_NAMES and 
-                    rows[i]['ortu_clean'] == rows[j]['ortu_clean']):
-                    matches.append(j)
-                    tier = tier or "Tier 3: Ortu & Tgl Lahir Sama"
-                    continue
+                # Syarat Tambahan: Jenis Kelamin Harus Sama (Mencegah kembar beda gender tergabung)
+                jk_i = rows[i].get('jk_clean', '')
+                jk_j = rows[j].get('jk_clean', '')
+                jk_match = (not jk_i or not jk_j or jk_i == jk_j)
                 
-                # 3B. Tanggal lahir sama + Kemiripan Nama Anak >= 85%
-                sim = similarity_score(rows[i]['nama_anak_clean'], rows[j]['nama_anak_clean'])
-                if sim >= 0.85 and len(rows[i]['nama_anak_clean']) > 3:
-                    matches.append(j)
-                    tier = tier or f"Tier 3: Kemiripan Nama ({int(sim*100)}%)"
-                    continue
+                if jk_match:
+                    sim = similarity_score(rows[i]['nama_anak_clean'], rows[j]['nama_anak_clean'])
+                    
+                    # 3A. Tanggal lahir sama + Nama Ortu sama (Hanya jika nama ortu BUKAN generik & kemiripan nama >= 50%)
+                    if (rows[i]['ortu_clean'] and 
+                        rows[i]['ortu_clean'] not in GENERIC_PARENT_NAMES and 
+                        rows[i]['ortu_clean'] == rows[j]['ortu_clean'] and 
+                        sim >= 0.50):
+                        matches.append(j)
+                        tier = tier or "Tier 3: Ortu & Tgl Lahir Sama"
+                        continue
+                    
+                    # 3B. Tanggal lahir sama + Kemiripan Nama Anak >= 85%
+                    if sim >= 0.85 and len(rows[i]['nama_anak_clean']) > 3:
+                        matches.append(j)
+                        tier = tier or f"Tier 3: Kemiripan Nama ({int(sim*100)}%)"
+                        continue
 
         if len(matches) > 1:
             g_id = f"DUP-{group_counter:04d}"
@@ -104,7 +113,8 @@ def run_detection(df):
             group_counter += 1
             
     # Hapus kolom pembantu
-    df = df.drop(columns=['nama_anak_clean', 'ortu_clean', 'tgl_lahir_clean'])
+    cols_to_drop = [c for c in ['nama_anak_clean', 'ortu_clean', 'jk_clean', 'tgl_lahir_clean'] if c in df.columns]
+    df = df.drop(columns=cols_to_drop)
     return df
 
 
@@ -136,7 +146,7 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
     with col_t3:
         st.markdown("""
         #### 🟠 Tier 3: Fuzzy / Ortu + Tgl Lahir
-        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu spesifik sama ATAU Kemiripan Nama Anak ≥ 85%).
+        * **Kriteria:** Tanggal Lahir sama + Jenis Kelamin sama DAN (Nama Ortu spesifik sama dengan nama anak mirip ≥ 50% ATAU Kemiripan Nama Anak ≥ 85%).
         * **Kepastian:** **Perlu Verifikasi Manual**
         * **Kasus:** Singkatan nama, beda ejaan ortu (*Zulvani* vs *Zulfani*), atau nama lahir (*By Ny...*).
         """)
