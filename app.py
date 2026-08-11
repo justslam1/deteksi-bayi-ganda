@@ -204,7 +204,7 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
 # --- SIDEBAR UPLOAD & AKSI MASSAL ---
 st.sidebar.header("📂 Sumber Data")
 
-# Managing key uploader untuk pengosongan total
+# Inisialisasi uploader_key jika belum ada
 if 'uploader_key' not in st.session_state:
     st.session_state['uploader_key'] = 0
 
@@ -254,10 +254,11 @@ if 'df_working' in st.session_state:
                     st.sidebar.success(f"Berhasil menyelesaikan {len(unresolved_g_ids)} kelompok ganda!")
                     st.rerun()
 
-    # 🔴 TOMBOL RESET DENGAN PEMBERSIHAN FILE UPLOAD TOTAL
+    # 🔴 TOMBOL RESET (DENGAN PENANGANAN KEY ERROR)
     if st.sidebar.button("🔄 Reset / Bersihkan Transaksi", type="secondary", use_container_width=True):
+        current_key = st.session_state.get('uploader_key', 0)
         st.session_state.clear()
-        st.session_state['uploader_key'] += 1  # Mengganti key uploader agar memicu re-render widget kosong
+        st.session_state['uploader_key'] = current_key + 1
         st.rerun()
 
 if uploaded_file is not None and 'df_working' not in st.session_state:
