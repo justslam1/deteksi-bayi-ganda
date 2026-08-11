@@ -6,10 +6,16 @@ import io
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="Deteksi Data Bayi Ganda",
+    page_title="Deteksi & Resolusi Data Bayi Ganda",
     page_icon="👶",
     layout="wide"
 )
+
+# Daftar kata generik nama orang tua yang diabaikan dalam pencocokan Tier 3
+GENERIC_PARENT_NAMES = {
+    'ibu', 'mama', 'bapak', 'ayah', 'ortu', 'orang tua', 
+    'anonim', 'null', 'none', 'i bu', 'ibuk'
+}
 
 # --- FUNGSI HELPER & LOGIKA DETEKSI ---
 
@@ -24,7 +30,7 @@ def similarity_score(a, b):
 def run_detection(df):
     df = df.copy()
     
-    # 🔴 SOLUSI 1: Konversi ID & NIK Anak ke string di awal untuk cegah PyArrow OverflowError
+    # 🔴 Konversi ID & NIK Anak ke string bersih untuk cegah PyArrow OverflowError
     if 'ID' in df.columns:
         df['ID'] = df['ID'].astype(str).str.replace(r'\.0$', '', regex=True)
     if 'NIK Anak' in df.columns:
@@ -74,8 +80,10 @@ def run_detection(df):
                 
             # --- TIER 3: Fuzzy Match / Ortu + Tanggal Lahir ---
             if rows[i]['tgl_lahir_clean'] and rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean']:
-                # 3A. Tanggal lahir sama + Nama Ortu sama
-                if rows[i]['ortu_clean'] and rows[i]['ortu_clean'] == rows[j]['ortu_clean']:
+                # 3A. Tanggal lahir sama + Nama Ortu sama (Hanya jika nama ortu BUKAN generik seperti 'Ibu')
+                if (rows[i]['ortu_clean'] and 
+                    rows[i]['ortu_clean'] not in GENERIC_PARENT_NAMES and 
+                    rows[i]['ortu_clean'] == rows[j]['ortu_clean']):
                     matches.append(j)
                     tier = tier or "Tier 3: Ortu & Tgl Lahir Sama"
                     continue
@@ -102,7 +110,7 @@ def run_detection(df):
 
 # --- INTERFACE UTAMA STREAMLIT ---
 
-st.title("Aplikasi Deteksi Data Bayi Ganda")
+st.title("👶 Aplikasi Deteksi & Resolusi Data Bayi Ganda")
 st.markdown("Sistem berbasis web untuk mendeteksi data kohort bayi ganda (Tier 1-3) serta **menggabungkan (merge) atau memverifikasi data** secara interaktif.")
 
 # --- EXPANDER PENJELASAN TIER ---
@@ -126,9 +134,9 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
         """)
         
     with col_t3:
-        st.markdown(r"""
+        st.markdown("""
         #### 🟠 Tier 3: Fuzzy / Ortu + Tgl Lahir
-        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu sama ATAU Kemiripan Nama $\ge 85\%$).
+        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu spesifik sama ATAU Kemiripan Nama Anak ≥ 85%).
         * **Kepastian:** **Perlu Verifikasi Manual**
         * **Kasus:** Singkatan nama, beda ejaan ortu (*Zulvani* vs *Zulfani*), atau nama lahir (*By Ny...*).
         """)
