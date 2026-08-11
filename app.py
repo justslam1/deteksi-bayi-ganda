@@ -201,7 +201,7 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
         * **Kepastian:** **Perlu Verifikasi Manual**
         """)
 
-# --- SIDEBAR UPLOAD & AKSI MASSAL ---
+# --- SIDEBAR UPLOAD ---
 st.sidebar.header("📂 Sumber Data")
 
 # Inisialisasi uploader_key jika belum ada
@@ -215,46 +215,8 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 if 'df_working' in st.session_state:
-    st.sidebar.divider()
-    st.sidebar.header("⚡ Aksi Massal (Bulk Action)")
-    
-    # 🚀 TOMBOL AUTO-RESOLVE ALL
-    if st.session_state.get('processed', False):
-        if st.sidebar.button("⚡ Eksekusi Otomatis Semua Sesuai Rekomendasi", type="primary", use_container_width=True):
-            df_work = st.session_state['df_working']
-            resolved_set = st.session_state.get('resolved_groups', set())
-            
-            duplicates_df = df_work[df_work['duplicate_tier'].notnull()]
-            unresolved_g_ids = [g for g in duplicates_df['group_id'].unique() if g not in resolved_set]
-            
-            if unresolved_g_ids:
-                indices_to_drop = []
-                
-                with st.spinner(f"Memproses {len(unresolved_g_ids)} kelompok ganda secara otomatis..."):
-                    for g_id in unresolved_g_ids:
-                        group_data = df_work[df_work['group_id'] == g_id]
-                        best_master_id = get_best_option_id(group_data)
-                        
-                        master_idx = group_data[group_data['ID'] == best_master_id].index[0]
-                        duplicate_indices = group_data[group_data['ID'] != best_master_id].index.tolist()
-                        
-                        # Gabungkan riwayat imunisasi jika ada data komplementer
-                        if should_suggest_merge(best_master_id, group_data):
-                            for dup_idx in duplicate_indices:
-                                for col in df_work.columns:
-                                    if pd.isna(df_work.at[master_idx, col]) and pd.notna(df_work.at[dup_idx, col]):
-                                        df_work.at[master_idx, col] = df_work.at[dup_idx, col]
-                        
-                        indices_to_drop.extend(duplicate_indices)
-                        resolved_set.add(g_id)
-                    
-                    df_work = df_work.drop(index=indices_to_drop)
-                    st.session_state['df_working'] = df_work
-                    st.session_state['resolved_groups'] = resolved_set
-                    st.sidebar.success(f"Berhasil menyelesaikan {len(unresolved_g_ids)} kelompok ganda!")
-                    st.rerun()
-
-    # 🔴 TOMBOL RESET (DENGAN PENANGANAN KEY ERROR)
+    st.sidebar.write("")
+    # 🔴 TOMBOL RESET
     if st.sidebar.button("🔄 Reset / Bersihkan Transaksi", type="secondary", use_container_width=True):
         current_key = st.session_state.get('uploader_key', 0)
         st.session_state.clear()
@@ -371,7 +333,7 @@ if st.session_state.get('processed', False):
             
             st.divider()
             
-            # Form Konfigurasi (Rekomendasi Otomatis sebagai Default Pilihan)
+            # Form Konfigurasi
             st.write("#### Konfigurasi Penggabungan Data")
             
             master_id_options = group_data['ID'].tolist()
@@ -384,7 +346,7 @@ if st.session_state.get('processed', False):
                 format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0]}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
             )
             
-            # 💡 Smart Checkbox Value berdasarkan analisis ketersediaan data komplementer
+            # 💡 Smart Checkbox Value
             suggested_check = should_suggest_merge(selected_master_id, group_data)
             
             merge_imunization = st.checkbox(
@@ -399,7 +361,7 @@ if st.session_state.get('processed', False):
             st.write("")
             btn_col1, btn_col2 = st.columns([1, 1])
             
-            # Tombol 1: Selesaikan & Gabung
+            # Tombol 1: Selesaikan & Gabung Kelompok Ini
             with btn_col1:
                 if st.button("✅ Selesaikan & Gabungkan Data Kelompok Ini", type="primary", use_container_width=True):
                     master_idx = group_data[group_data['ID'] == selected_master_id].index[0]
@@ -423,6 +385,45 @@ if st.session_state.get('processed', False):
                     st.session_state['resolved_groups'].add(selected_group)
                     st.info(f"Kelompok {selected_group} dilewati. Kedua data dipertahankan secara terpisah.")
                     st.rerun()
+
+            # ---------------- 🚀 TOMBOL AUTO-RESOLVE ALL (PEMINDAHAN LOKASI) ----------------
+            st.write("")
+            st.markdown("---")
+            st.write("#### ⚡ Aksi Massal (Bulk Action)")
+            st.caption("Ingin menyelesaikan seluruh sisa kelompok duplikat sekaligus tanpa review satu per satu?")
+            
+            if st.button("⚡ Eksekusi Otomatis Semua Sesuai Rekomendasi", type="primary", use_container_width=False):
+                df_work = st.session_state['df_working']
+                resolved_set = st.session_state.get('resolved_groups', set())
+                
+                duplicates_df = df_work[df_work['duplicate_tier'].notnull()]
+                unresolved_g_ids = [g for g in duplicates_df['group_id'].unique() if g not in resolved_set]
+                
+                if unresolved_g_ids:
+                    indices_to_drop = []
+                    
+                    with st.spinner(f"Memproses {len(unresolved_g_ids)} kelompok ganda secara otomatis..."):
+                        for g_id in unresolved_g_ids:
+                            g_data = df_work[df_work['group_id'] == g_id]
+                            best_master_id = get_best_option_id(g_data)
+                            
+                            master_idx = g_data[g_data['ID'] == best_master_id].index[0]
+                            duplicate_indices = g_data[g_data['ID'] != best_master_id].index.tolist()
+                            
+                            if should_suggest_merge(best_master_id, g_data):
+                                for dup_idx in duplicate_indices:
+                                    for col in df_work.columns:
+                                        if pd.isna(df_work.at[master_idx, col]) and pd.notna(df_work.at[dup_idx, col]):
+                                            df_work.at[master_idx, col] = df_work.at[dup_idx, col]
+                            
+                            indices_to_drop.extend(duplicate_indices)
+                            resolved_set.add(g_id)
+                        
+                        df_work = df_work.drop(index=indices_to_drop)
+                        st.session_state['df_working'] = df_work
+                        st.session_state['resolved_groups'] = resolved_set
+                        st.success(f"Berhasil menyelesaikan {len(unresolved_g_ids)} kelompok ganda sekaligus!")
+                        st.rerun()
 
     # ---------------- EXPORT CLEAN DATASET ----------------
     st.sidebar.divider()
