@@ -6,7 +6,7 @@ import io
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="Deteksi & Resolusi Data Bayi Ganda",
+    page_title="Deteksi Data Bayi Ganda",
     page_icon="👶",
     layout="wide"
 )
@@ -102,7 +102,7 @@ def run_detection(df):
 
 # --- INTERFACE UTAMA STREAMLIT ---
 
-st.title("👶 Aplikasi Deteksi & Resolusi Data Bayi Ganda")
+st.title("Aplikasi Deteksi Data Bayi Ganda")
 st.markdown("Sistem berbasis web untuk mendeteksi data kohort bayi ganda (Tier 1-3) serta **menggabungkan (merge) atau memverifikasi data** secara interaktif.")
 
 # --- EXPANDER PENJELASAN TIER ---
