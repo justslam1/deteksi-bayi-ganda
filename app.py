@@ -26,7 +26,7 @@ def clean_text(text):
 def similarity_score(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
-# 💡 FUNGSI PENILAIAN REKOMENDASI MASTER RECORD
+# FUNGSI PENILAIAN REKOMENDASI MASTER RECORD
 def calculate_score(row, group_df):
     score = 0
     
@@ -65,6 +65,7 @@ def get_best_option_id(group_df):
 def run_detection(df):
     df = df.copy()
     
+    # Konversi ID & NIK Anak ke string bersih untuk cegah PyArrow OverflowError
     if 'ID' in df.columns:
         df['ID'] = df['ID'].astype(str).str.replace(r'\.0$', '', regex=True)
     if 'NIK Anak' in df.columns:
@@ -296,31 +297,18 @@ if st.session_state.get('processed', False):
             
             st.divider()
             
-            # Form Konfigurasi & Auto-Select
+            # Form Konfigurasi (Rekomendasi Otomatis sebagai Default Pilihan)
             st.write("#### Konfigurasi Penggabungan Data")
             
             master_id_options = group_data['ID'].tolist()
+            default_idx = master_id_options.index(recommended_id) if recommended_id in master_id_options else 0
             
-            # Inisialisasi/Set default pilihan master
-            if 'selected_master_id' not in st.session_state or st.session_state.get('current_group') != selected_group:
-                st.session_state['selected_master_id'] = recommended_id
-                st.session_state['current_group'] = selected_group
-            
-            col_sel, col_btn_auto = st.columns([3, 1])
-            with col_btn_auto:
-                st.write("")
-                if st.button("💡 Gunakan Rekomendasi", use_container_width=True):
-                    st.session_state['selected_master_id'] = recommended_id
-                    st.rerun()
-
-            with col_sel:
-                default_idx = master_id_options.index(st.session_state['selected_master_id']) if st.session_state['selected_master_id'] in master_id_options else 0
-                selected_master_id = st.selectbox(
-                    "Pilih ID yang dijadikan DATA UTAMA (Master Record):",
-                    master_id_options,
-                    index=default_idx,
-                    format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0]}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
-                )
+            selected_master_id = st.selectbox(
+                "Pilih ID yang dijadikan DATA UTAMA (Master Record):",
+                master_id_options,
+                index=default_idx,
+                format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0]}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
+            )
             
             merge_imunization = st.checkbox(
                 "Otomatis gabungkan riwayat imunisasi yang kosong di Data Utama dari data duplikatnya", 
