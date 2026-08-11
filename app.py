@@ -6,8 +6,8 @@ import io
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="Deteksi Data Bayi Ganda",
-    page_icon="🩺",
+    page_title="Deteksi & Resolusi Data Bayi Ganda",
+    page_icon="👶",
     layout="wide"
 )
 
@@ -24,7 +24,13 @@ def similarity_score(a, b):
 def run_detection(df):
     df = df.copy()
     
-    # Preprocessing
+    # 🔴 SOLUSI 1: Konversi ID & NIK Anak ke string di awal untuk cegah PyArrow OverflowError
+    if 'ID' in df.columns:
+        df['ID'] = df['ID'].astype(str).str.replace(r'\.0$', '', regex=True)
+    if 'NIK Anak' in df.columns:
+        df['NIK Anak'] = df['NIK Anak'].astype(str).str.replace("'", "").str.strip()
+    
+    # Preprocessing Teks
     df['nama_anak_clean'] = df['Nama Anak'].apply(clean_text)
     df['ortu_clean'] = df['Nama Orang Tua'].apply(clean_text)
     
@@ -96,7 +102,7 @@ def run_detection(df):
 
 # --- INTERFACE UTAMA STREAMLIT ---
 
-st.title("💉Aplikasi Deteksi Data Bayi Ganda")
+st.title("👶 Aplikasi Deteksi & Resolusi Data Bayi Ganda")
 st.markdown("Sistem berbasis web untuk mendeteksi data kohort bayi ganda (Tier 1-3) serta **menggabungkan (merge) atau memverifikasi data** secara interaktif.")
 
 # --- EXPANDER PENJELASAN TIER ---
@@ -120,9 +126,9 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
         """)
         
     with col_t3:
-        st.markdown("""
+        st.markdown(r"""
         #### 🟠 Tier 3: Fuzzy / Ortu + Tgl Lahir
-        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu sama ATAU Kemiripan Nama ≥ 85%).
+        * **Kriteria:** Tanggal Lahir sama DAN (Nama Ortu sama ATAU Kemiripan Nama $\ge 85\%$).
         * **Kepastian:** **Perlu Verifikasi Manual**
         * **Kasus:** Singkatan nama, beda ejaan ortu (*Zulvani* vs *Zulfani*), atau nama lahir (*By Ny...*).
         """)
@@ -192,7 +198,7 @@ if st.session_state.get('processed', False):
         
         st.divider()
         
-        # Filter Tier & Data Table
+        # Filter Tier & Tabel Data
         tiers_available = ["Semua Tier"] + list(duplicates['duplicate_tier'].unique())
         selected_tier = st.selectbox("Saring berdasarkan Tingkatan (Tier):", tiers_available)
         
