@@ -6,7 +6,7 @@ import io
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="Deteksi Data Bayi Ganda",
+    page_title="Deteksi & Resolusi Data Bayi Ganda",
     page_icon="👶",
     layout="wide"
 )
@@ -90,12 +90,15 @@ def run_detection(df):
         df['NIK Anak'] = df['NIK Anak'].astype(str).str.replace("'", "").str.strip()
     
     # Preprocessing Teks
-    df['nama_anak_clean'] = df['Nama Anak'].apply(clean_text)
-    df['ortu_clean'] = df['Nama Orang Tua'].apply(clean_text)
+    df['nama_anak_clean'] = df['Nama Anak'].apply(clean_text) if 'Nama Anak' in df.columns else ""
+    df['ortu_clean'] = df['Nama Orang Tua'].apply(clean_text) if 'Nama Orang Tua' in df.columns else ""
     df['jk_clean'] = df['Jenis Kelamin Anak'].astype(str).str.lower().str.strip() if 'Jenis Kelamin Anak' in df.columns else ""
     
     # Konversi Tanggal Lahir ke string ISO
-    df['tgl_lahir_clean'] = pd.to_datetime(df['Tanggal Lahir Anak'], errors='coerce').dt.strftime('%Y-%m-%d')
+    if 'Tanggal Lahir Anak' in df.columns:
+        df['tgl_lahir_clean'] = pd.to_datetime(df['Tanggal Lahir Anak'], errors='coerce').dt.strftime('%Y-%m-%d')
+    else:
+        df['tgl_lahir_clean'] = ""
     
     df['duplicate_tier'] = None
     df['group_id'] = None
@@ -125,8 +128,8 @@ def run_detection(df):
                 continue
                 
             # --- TIER 2: Nama Anak + Tanggal Lahir Sama Persis ---
-            if (rows[i]['nama_anak_clean'] == rows[j]['nama_anak_clean'] and 
-                rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean'] and 
+            if (rows[i]['nama_anak_clean'] and rows[i]['nama_anak_clean'] == rows[j]['nama_anak_clean'] and 
+                rows[i]['tgl_lahir_clean'] and rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean'] and 
                 len(rows[i]['nama_anak_clean']) > 2):
                 matches.append(j)
                 tier = tier or "Tier 2: Nama & Tgl Lahir Sama"
@@ -173,7 +176,7 @@ def run_detection(df):
 
 # --- INTERFACE UTAMA STREAMLIT ---
 
-st.title("Aplikasi Deteksi Data Bayi Ganda")
+st.title("👶 Aplikasi Deteksi & Resolusi Data Bayi Ganda")
 st.markdown("Sistem berbasis web untuk mendeteksi data kohort bayi ganda (Tier 1-3) serta **menggabungkan (merge) atau memverifikasi data** secara interaktif.")
 
 # --- EXPANDER PENJELASAN TIER ---
@@ -216,7 +219,7 @@ uploaded_file = st.sidebar.file_uploader(
 
 if 'df_working' in st.session_state:
     st.sidebar.write("")
-    # 🔴 TOMBOL RESET
+    # 🔴 TOMBOL RESET (DENGAN PENANGANAN KEY ERROR)
     if st.sidebar.button("🔄 Reset / Bersihkan Transaksi", type="secondary", use_container_width=True):
         current_key = st.session_state.get('uploader_key', 0)
         st.session_state.clear()
@@ -225,6 +228,9 @@ if 'df_working' in st.session_state:
 
 if uploaded_file is not None and 'df_working' not in st.session_state:
     df_raw = pd.read_excel(uploaded_file)
+    # 🔴 Bersihkan spasi liar di setiap nama kolom agar tidak memicu KeyError
+    df_raw.columns = df_raw.columns.astype(str).str.strip()
+    
     st.session_state['df_working'] = df_raw.copy()
     st.session_state['processed'] = False
     st.session_state['resolved_groups'] = set()
@@ -283,7 +289,10 @@ if st.session_state.get('processed', False):
         selected_tier = st.selectbox("Saring berdasarkan Tingkatan (Tier):", tiers_available)
         
         filtered_dup = duplicates if selected_tier == "Semua Tier" else duplicates[duplicates['duplicate_tier'] == selected_tier]
-        cols_to_display = ['group_id', 'duplicate_tier', 'ID', 'NIK Anak', 'Nama Anak', 'Tanggal Lahir Anak', 'Nama Orang Tua', 'Puskesmas']
+        
+        # 🔴 DYNAMIC COLUMN FALLBACK: Hanya pilih kolom yang benar-benar ada di dataset
+        target_cols = ['group_id', 'duplicate_tier', 'ID', 'NIK Anak', 'Nama Anak', 'Tanggal Lahir Anak', 'Nama Orang Tua', 'Puskesmas']
+        cols_to_display = [col for col in target_cols if col in filtered_dup.columns]
         
         st.dataframe(
             filtered_dup[cols_to_display].sort_values(by=['group_id', 'duplicate_tier']),
@@ -320,12 +329,13 @@ if st.session_state.get('processed', False):
                         st.markdown("---")
                     
                     st.markdown(f"### Option {idx + 1}")
-                    st.write(f"**ID:** {row['ID']}")
-                    st.write(f"**NIK Anak:** {row['NIK Anak']}")
-                    st.write(f"**Nama Anak:** {row['Nama Anak']}")
-                    st.write(f"**Tgl Lahir:** {row['Tanggal Lahir Anak']}")
-                    st.write(f"**Nama Ortu:** {row['Nama Orang Tua']}")
-                    st.write(f"**Puskesmas:** {row['Puskesmas']}")
+                    st.write(f"**ID:** {row.get('ID', '-')}")
+                    st.write(f"**NIK Anak:** {row.get('NIK Anak', '-')}")
+                    st.write(f"**Nama Anak:** {row.get('Nama Anak', '-')}")
+                    st.write(f"**Tgl Lahir:** {row.get('Tanggal Lahir Anak', '-')}")
+                    st.write(f"**Nama Ortu:** {row.get('Nama Orang Tua', '-')}")
+                    if 'Puskesmas' in row:
+                        st.write(f"**Puskesmas:** {row.get('Puskesmas', '-')}")
                     
                     imun_cols = [c for c in group_data.columns if 'Tanggal Imunisasi' in c or 'Tanggal IDL' in c]
                     filled_imun = row[imun_cols].notnull().sum()
@@ -343,7 +353,7 @@ if st.session_state.get('processed', False):
                 "Pilih ID yang dijadikan DATA UTAMA (Master Record):",
                 master_id_options,
                 index=default_idx,
-                format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0]}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
+                format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0] if 'Nama Anak' in group_data.columns else x}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
             )
             
             # 💡 Smart Checkbox Value
@@ -386,7 +396,7 @@ if st.session_state.get('processed', False):
                     st.info(f"Kelompok {selected_group} dilewati. Kedua data dipertahankan secara terpisah.")
                     st.rerun()
 
-            # ---------------- 🚀 TOMBOL AUTO-RESOLVE ALL (PEMINDAHAN LOKASI) ----------------
+            # ---------------- 🚀 TOMBOL AUTO-RESOLVE ALL ----------------
             st.write("")
             st.markdown("---")
             st.write("#### ⚡ Aksi Massal (Bulk Action)")
