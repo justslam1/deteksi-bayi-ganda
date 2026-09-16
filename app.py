@@ -27,13 +27,13 @@ def clean_text(text):
 def similarity_score(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
-# 💡 FUNGSI PENILAIAN REKOMENDASI MASTER RECORD
+# 💡 FUNGSI PENILAIAN REKOMENDASI MASTER RECORD (AMAN DARI KEYERROR)
 def calculate_score(row, group_df):
     score = 0
     
     # 1. Kelengkapan Imunisasi (Bobot Maksimal 50 Poin)
     imun_cols = [c for c in group_df.columns if 'Tanggal Imunisasi' in c or 'Tanggal IDL' in c]
-    filled_imun = row[imun_cols].notnull().sum()
+    filled_imun = sum(pd.notna(row.get(c)) for c in imun_cols)
     score += (filled_imun / len(imun_cols)) * 50 if imun_cols else 0
     
     # 2. Keabsahan NIK Anak (Bobot 30 Poin)
@@ -58,24 +58,26 @@ def calculate_score(row, group_df):
 def get_best_option_id(group_df):
     scores = {}
     for idx, row in group_df.iterrows():
-        scores[row['ID']] = calculate_score(row, group_df)
+        # Fallback jika kolom 'ID' tidak ditemukan
+        row_id = str(row.get('ID', idx))
+        scores[row_id] = calculate_score(row, group_df)
     return max(scores, key=scores.get)
 
 # 💡 FUNGSI SMART CHECKBOX PENGGABUNGAN IMUNISASI
 def should_suggest_merge(master_id, group_df):
     """Mengecek apakah data duplikat memiliki riwayat imunisasi komplementer untuk mengisi kekosongan Master."""
-    master_rows = group_df[group_df['ID'] == master_id]
+    master_rows = group_df[group_df['ID'].astype(str) == str(master_id)]
     if master_rows.empty:
         return True
     
     master_row = master_rows.iloc[0]
-    dup_rows = group_df[group_df['ID'] != master_id]
+    dup_rows = group_df[group_df['ID'].astype(str) != str(master_id)]
     
     imun_cols = [c for c in group_df.columns if 'Tanggal Imunisasi' in c or 'Tanggal IDL' in c]
     
     for col in imun_cols:
-        if pd.isna(master_row[col]) and dup_rows[col].notnull().any():
-            return True # Ditemukan data imunisasi tambahan di duplikat
+        if pd.isna(master_row.get(col)) and dup_rows[col].notnull().any():
+            return True
             
     return False
 
@@ -83,9 +85,17 @@ def should_suggest_merge(master_id, group_df):
 def run_detection(df):
     df = df.copy()
     
-    # Konversi ID & NIK Anak ke string bersih untuk cegah PyArrow OverflowError
-    if 'ID' in df.columns:
-        df['ID'] = df['ID'].astype(str).str.replace(r'\.0$', '', regex=True)
+    # Deteksi dan standarisasi kolom ID
+    if 'ID' not in df.columns:
+        for col_alt in ['id', 'Id', 'ID Anak', 'No', 'NO']:
+            if col_alt in df.columns:
+                df['ID'] = df[col_alt]
+                break
+        else:
+            df['ID'] = df.index.astype(str)
+            
+    df['ID'] = df['ID'].astype(str).str.replace(r'\.0$', '', regex=True)
+    
     if 'NIK Anak' in df.columns:
         df['NIK Anak'] = df['NIK Anak'].astype(str).str.replace("'", "").str.strip()
     
@@ -137,7 +147,6 @@ def run_detection(df):
                 
             # --- TIER 3: Fuzzy Match / Ortu + Tanggal Lahir ---
             if rows[i]['tgl_lahir_clean'] and rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean']:
-                # Pengecekan Jenis Kelamin (Mencegah kembar beda gender tergabung)
                 jk_i = rows[i].get('jk_clean', '')
                 jk_j = rows[j].get('jk_clean', '')
                 jk_match = (not jk_i or not jk_j or jk_i == jk_j)
@@ -168,7 +177,6 @@ def run_detection(df):
                 processed.add(idx)
             group_counter += 1
             
-    # Hapus kolom pembantu
     cols_to_drop = [c for c in ['nama_anak_clean', 'ortu_clean', 'jk_clean', 'tgl_lahir_clean'] if c in df.columns]
     df = df.drop(columns=cols_to_drop)
     return df
@@ -207,7 +215,6 @@ with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3
 # --- SIDEBAR UPLOAD ---
 st.sidebar.header("📂 Sumber Data")
 
-# Inisialisasi uploader_key jika belum ada
 if 'uploader_key' not in st.session_state:
     st.session_state['uploader_key'] = 0
 
@@ -219,7 +226,6 @@ uploaded_file = st.sidebar.file_uploader(
 
 if 'df_working' in st.session_state:
     st.sidebar.write("")
-    # 🔴 TOMBOL RESET (DENGAN PENANGANAN KEY ERROR)
     if st.sidebar.button("🔄 Reset / Bersihkan Transaksi", type="secondary", use_container_width=True):
         current_key = st.session_state.get('uploader_key', 0)
         st.session_state.clear()
@@ -228,9 +234,17 @@ if 'df_working' in st.session_state:
 
 if uploaded_file is not None and 'df_working' not in st.session_state:
     df_raw = pd.read_excel(uploaded_file)
-    # 🔴 Bersihkan spasi liar di setiap nama kolom agar tidak memicu KeyError
     df_raw.columns = df_raw.columns.astype(str).str.strip()
     
+    # Pastikan ada kolom ID
+    if 'ID' not in df_raw.columns:
+        for col_alt in ['id', 'Id', 'ID Anak', 'No', 'NO']:
+            if col_alt in df_raw.columns:
+                df_raw['ID'] = df_raw[col_alt]
+                break
+        else:
+            df_raw['ID'] = [f"ROW_{i+1}" for i in range(len(df_raw))]
+            
     st.session_state['df_working'] = df_raw.copy()
     st.session_state['processed'] = False
     st.session_state['resolved_groups'] = set()
@@ -290,7 +304,6 @@ if st.session_state.get('processed', False):
         
         filtered_dup = duplicates if selected_tier == "Semua Tier" else duplicates[duplicates['duplicate_tier'] == selected_tier]
         
-        # 🔴 DYNAMIC COLUMN FALLBACK: Hanya pilih kolom yang benar-benar ada di dataset
         target_cols = ['group_id', 'duplicate_tier', 'ID', 'NIK Anak', 'Nama Anak', 'Tanggal Lahir Anak', 'Nama Orang Tua', 'Puskesmas']
         cols_to_display = [col for col in target_cols if col in filtered_dup.columns]
         
@@ -319,11 +332,11 @@ if st.session_state.get('processed', False):
             
             st.info(f"**Tipe Duplikat:** `{tier_info}` | Jumlah Entri: **{len(group_data)}**")
             
-            # Tampilkan Perbandingan Side-by-Side dengan Badge Rekomendasi
             cols = st.columns(len(group_data))
             for idx, (index_row, row) in enumerate(group_data.iterrows()):
                 with cols[idx]:
-                    if str(row['ID']) == str(recommended_id):
+                    current_row_id = str(row.get('ID', ''))
+                    if current_row_id == str(recommended_id):
                         st.success("⭐ **REKOMENDASI SISTEM**")
                     else:
                         st.markdown("---")
@@ -338,25 +351,23 @@ if st.session_state.get('processed', False):
                         st.write(f"**Puskesmas:** {row.get('Puskesmas', '-')}")
                     
                     imun_cols = [c for c in group_data.columns if 'Tanggal Imunisasi' in c or 'Tanggal IDL' in c]
-                    filled_imun = row[imun_cols].notnull().sum()
+                    filled_imun = sum(pd.notna(row.get(c)) for c in imun_cols)
                     st.caption(f"💉 Riwayat Imunisasi Terisi: **{filled_imun} / {len(imun_cols)}**")
             
             st.divider()
             
-            # Form Konfigurasi
             st.write("#### Konfigurasi Penggabungan Data")
             
-            master_id_options = group_data['ID'].tolist()
-            default_idx = master_id_options.index(recommended_id) if recommended_id in master_id_options else 0
+            master_id_options = group_data['ID'].astype(str).tolist()
+            default_idx = master_id_options.index(str(recommended_id)) if str(recommended_id) in master_id_options else 0
             
             selected_master_id = st.selectbox(
                 "Pilih ID yang dijadikan DATA UTAMA (Master Record):",
                 master_id_options,
                 index=default_idx,
-                format_func=lambda x: f"ID: {x} - {group_data[group_data['ID']==x]['Nama Anak'].values[0] if 'Nama Anak' in group_data.columns else x}" + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
+                format_func=lambda x: f"ID: {x}" + (f" - {group_data[group_data['ID'].astype(str)==x]['Nama Anak'].values[0]}" if 'Nama Anak' in group_data.columns else "") + (" ⭐ (Rekomendasi)" if str(x) == str(recommended_id) else "")
             )
             
-            # 💡 Smart Checkbox Value
             suggested_check = should_suggest_merge(selected_master_id, group_data)
             
             merge_imunization = st.checkbox(
@@ -374,8 +385,9 @@ if st.session_state.get('processed', False):
             # Tombol 1: Selesaikan & Gabung Kelompok Ini
             with btn_col1:
                 if st.button("✅ Selesaikan & Gabungkan Data Kelompok Ini", type="primary", use_container_width=True):
-                    master_idx = group_data[group_data['ID'] == selected_master_id].index[0]
-                    duplicate_indices = group_data[group_data['ID'] != selected_master_id].index.tolist()
+                    master_matches = group_data[group_data['ID'].astype(str) == str(selected_master_id)]
+                    master_idx = master_matches.index[0]
+                    duplicate_indices = group_data[group_data['ID'].astype(str) != str(selected_master_id)].index.tolist()
                     
                     if merge_imunization:
                         for dup_idx in duplicate_indices:
@@ -417,8 +429,9 @@ if st.session_state.get('processed', False):
                             g_data = df_work[df_work['group_id'] == g_id]
                             best_master_id = get_best_option_id(g_data)
                             
-                            master_idx = g_data[g_data['ID'] == best_master_id].index[0]
-                            duplicate_indices = g_data[g_data['ID'] != best_master_id].index.tolist()
+                            master_matches = g_data[g_data['ID'].astype(str) == str(best_master_id)]
+                            master_idx = master_matches.index[0]
+                            duplicate_indices = g_data[g_data['ID'].astype(str) != str(best_master_id)].index.tolist()
                             
                             if should_suggest_merge(best_master_id, g_data):
                                 for dup_idx in duplicate_indices:
