@@ -27,7 +27,7 @@ def clean_text(text):
 def similarity_score(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
-# 💡 FUNGSI PENILAIAN REKOMENDASI MASTER RECORD (AMAN DARI KEYERROR)
+# 💡 FUNGSI PENILAIAN REKOMENDASI MASTER RECORD
 def calculate_score(row, group_df):
     score = 0
     
@@ -58,14 +58,12 @@ def calculate_score(row, group_df):
 def get_best_option_id(group_df):
     scores = {}
     for idx, row in group_df.iterrows():
-        # Fallback jika kolom 'ID' tidak ditemukan
         row_id = str(row.get('ID', idx))
         scores[row_id] = calculate_score(row, group_df)
     return max(scores, key=scores.get)
 
 # 💡 FUNGSI SMART CHECKBOX PENGGABUNGAN IMUNISASI
 def should_suggest_merge(master_id, group_df):
-    """Mengecek apakah data duplikat memiliki riwayat imunisasi komplementer untuk mengisi kekosongan Master."""
     master_rows = group_df[group_df['ID'].astype(str) == str(master_id)]
     if master_rows.empty:
         return True
@@ -85,7 +83,7 @@ def should_suggest_merge(master_id, group_df):
 def run_detection(df):
     df = df.copy()
     
-    # Deteksi dan standarisasi kolom ID
+    # Standarisasi kolom ID
     if 'ID' not in df.columns:
         for col_alt in ['id', 'Id', 'ID Anak', 'No', 'NO']:
             if col_alt in df.columns:
@@ -147,6 +145,7 @@ def run_detection(df):
                 
             # --- TIER 3: Fuzzy Match / Ortu + Tanggal Lahir ---
             if rows[i]['tgl_lahir_clean'] and rows[i]['tgl_lahir_clean'] == rows[j]['tgl_lahir_clean']:
+                # Pengecekan Jenis Kelamin (Mencegah kembar beda gender tergabung)
                 jk_i = rows[i].get('jk_clean', '')
                 jk_j = rows[j].get('jk_clean', '')
                 jk_match = (not jk_i or not jk_j or jk_i == jk_j)
@@ -186,6 +185,46 @@ def run_detection(df):
 
 st.title("👶 Aplikasi Deteksi & Resolusi Data Bayi Ganda")
 st.markdown("Sistem berbasis web untuk mendeteksi data kohort bayi ganda (Tier 1-3) serta **menggabungkan (merge) atau memverifikasi data** secara interaktif.")
+
+# --- EXPANDER PANDUAN PENGGUNAAN APLIKASI ---
+with st.expander("📖 **Panduan Penggunaan Aplikasi (Langkah demi Langkah)**", expanded=False):
+    st.markdown("""
+    Selamat datang di **Aplikasi Deteksi & Resolusi Data Bayi Ganda**. Ikuti panduan praktis berikut untuk membersihkan data kohort Anda:
+
+    ---
+    ### 📌 Langkah 1: Unggah Data Kohort
+    1. Siapkan file kohort bayi dalam format **Excel (`.xlsx`)**.
+    2. Buka menu samping (**Sidebar**) di sebelah kiri, lalu klik **"Browse files"** pada kotak *Unggah File Excel*.
+    3. Setelah file terbaca, periksa informasi jumlah baris total pada banner info biru.
+
+    ---
+    ### 🔍 Langkah 2: Jalankan Deteksi Duplikat
+    1. Klik tombol biru **"🚀 Jalankan Deteksi Duplikat"**.
+    2. Sistem akan memindai data dan mengelompokkannya ke dalam 3 tingkatan (Tier 1, 2, dan 3).
+    3. Pada tab **"📊 Dashboard & Hasil Deteksi"**, Anda dapat melihat ringkasan metrik, grafik kelompok ganda, serta menyaring data per tingkatan.
+
+    ---
+    ### 🛠️ Langkah 3: Resolusi Data (Penggabungan / Eliminasi)
+    Buka tab **"🛠️ Modul Resolusi & Merge Data"**. Tersedia 2 metode penyelesaian:
+
+    * **Metode A — Review Manual (Satu per Satu):**
+        1. Pilih kelompok duplikat (*Group ID*) yang ingin diperiksa.
+        2. Periksa opsi data yang dibandingkan secara berdampingan (*Option 1*, *Option 2*, dst).
+        3. Kartu yang paling lengkap akan otomatis diberi penanda hijau **`⭐ REKOMENDASI SISTEM`**.
+        4. Pada bagian *Konfigurasi Penggabungan Data*, tentukan **Data Utama (Master Record)**.
+        5. Pastikan opsi centang *"Otomatis gabungkan riwayat imunisasi yang kosong..."* tetap aktif agar catatan vaksinasi tidak hilang.
+        6. Klik **`✅ Selesaikan & Gabungkan Data Kelompok Ini`** untuk merge, atau klik **`⏭️ Lewati (Bukan Duplikat)`** jika data tersebut adalah bayi berbeda (misalnya bayi kembar).
+
+    * **Metode B — Eksekusi Otomatis Sekaligus (*Bulk Action*):**
+        * Jika Anda ingin menyelesaikan seluruh sisa kelompok duplikat tanpa review satu per satu, klik tombol merah **`⚡ Eksekusi Otomatis Semua Sesuai Rekomendasi`**. Sistem akan memilihkan data terbaik dan menggabungkan imunisasi secara otomatis untuk semua kelompok yang tersisa.
+
+    ---
+    ### 💾 Langkah 4: Unduh Data Bersih
+    1. Setelah kelompok duplikat selesai di-review, buka kembali menu **Sidebar**.
+    2. Klik tombol **`📥 Unduh Data Bersih (.xlsx)`** di bagian bawah sidebar.
+    3. File Excel yang diunduh sudah bersih dari duplikasi dan siap digunakan untuk pelaporan.
+    4. Gunakan tombol **`🔄 Reset / Bersihkan Transaksi`** jika ingin memulai sesi baru dengan file lain.
+    """)
 
 # --- EXPANDER PENJELASAN TIER ---
 with st.expander("ℹ️ **Penjelasan Kriteria Deteksi (Tier 1, Tier 2, & Tier 3)**"):
